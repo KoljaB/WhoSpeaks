@@ -129,8 +129,7 @@ pytz==2024.1
 pywin32==306
 PyYAML==6.0.1
 RealTimeSTT==0.1.12
-# Editable Git install with no remote (RealTimeTTS==0.3.43)
--e d:\projekte\realtimetts
+RealTimeTTS==0.3.43
 regex==2023.12.25
 requests==2.31.0
 safetensors==0.4.2
