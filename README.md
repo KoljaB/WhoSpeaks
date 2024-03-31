@@ -2,9 +2,7 @@
 
 *A Toolkit for Enhanced Voice Training Datasets*
 
-I created WhoSpeaks out of frustration with the current speaker diarization libraries. My experience found them to be generally unreliable and too heavyweight. WhoSpeaks aims to offer a more precise and user-friendly alternative for voice training datasets.
-
-I initially crafted this as a personal project, but was astounded by its effectiveness. For me it's a significant step up from other tools like pyannote audio. That's why I've decided to release this raw, yet powerful code for others to experiment with and enhance their diarization processes.
+WhoSpeaks emerged from the need for better speaker diarization tools. Existing libraries are heavyweight and often fall short in reliability, speed and efficiency. So this project offers a more refined alternative.
 
 Here's the core concept:
 - **Voice Characteristic Extraction**: For each sentence in your audio, unique voice characteristics are extracted, creating audio embeddings.
@@ -19,3 +17,5 @@ These steps allow us to match any sentence against the established speaker profi
 - **split_dataset.py**: This tool divides your input audio into distinct sentences.
 - **convert_wav.py**: Converts the sentence-based MP3 files into WAV format.
 - **speaker_diarize.py**: Heart of WhoSpeaks. Categorizes sentences into speaker groups and selects training sentences based on the unique algorithm described above.
+
+I initially developed this as a personal project, but was astounded by its effectiveness. In my first tests it outperformed existing solutions like pyannote audio in both reliability and speed while being the more lightweight approach. For me it could be a significant step up in voice diarization capabilities, that's why I've decided to release this rather raw, yet powerful code for others to experiment with.
