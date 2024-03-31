@@ -2,7 +2,14 @@ from yt_dlp import YoutubeDL
 from os.path import exists, join, splitext
 import os
 
-directory = "downloaded_files"
+urls = [
+    "https://www.youtube.com/watch?v=JN3KPFbWCy8", # Elon Musk / Lex Fridman Round 4
+    "https://www.youtube.com/watch?v=DxREm3s1scA", # Elon Musk / Lex Fridman Round 3
+    "https://www.youtube.com/watch?v=smK9dgdTl40", # Elon Musk / Lex Fridman Round 2
+    "https://www.youtube.com/watch?v=dEv99vxKjVI", # Elon Musk / Lex Fridman Round 1
+]
+directory = "input"
+
 
 def fetch_youtube(
     url: str,
@@ -42,6 +49,19 @@ def fetch_youtube(
             'outtmpl': outtmpl,
             'noplaylist': True,
         }
+    elif filetype == 'mp3_audio':
+        # Download audio as MP3
+        outtmpl = join(directory, '%(title)s.%(ext)s')
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': outtmpl,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'noplaylist': True,
+        }   
     elif filetype == 'muted_video':
         # Download video without audio
         outtmpl = join(directory, '%(title)s_mutedvideo.%(ext)s')
@@ -61,4 +81,5 @@ def fetch_youtube(
 
     return downloaded_file
 
-audio_file = fetch_youtube(url, 'audio', directory)
+for url in urls:
+    audio_file = fetch_youtube(url, 'mp3_audio', directory)
