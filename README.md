@@ -18,6 +18,7 @@ These steps allow us to match any sentence against the established speaker profi
 - **split_dataset.py**: This tool divides your input audio into distinct sentences.
 - **convert_wav.py**: Converts the sentence-based MP3 files into WAV format.
 - **auto_diarize.py**/**speaker_diarize.py**: Heart of WhoSpeaks. Categorizes sentences into speaker groups and selects training sentences based on the unique algorithm described above.
+- **pyannote_diarize.py**: Use for comparison against pyannote audio diarization, a current state of the art speaker diarization model
 
 > **Note**: *auto_diarize is for multiple speakers, speaker_diarize is for two speakers only*
 
