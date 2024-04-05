@@ -43,4 +43,4 @@ To demonstrate WhoSpeaks' capabilities, we conducted a test using a challenging 
 - Of the 33 sentences assigned to the other actor, only one was incorrect.
 - The overall error rate was approximately 3.5%, demonstrating a precision of about 95% in correctly assigning sentences.
 
-The effectiveness of WhoSpeaks in this test, particularly against pyannote audio, showcases its potential in handling complex diarization scenarios with high accuracy and efficiency. This project, initially a personal endeavor, has evolved into a powerful tool for voice diarization, offering a lightweight yet sophisticated alternative to existing solutions. We encourage others to experiment with this approach and contribute to its development.
+The effectiveness of WhoSpeaks in this test, particularly against pyannote audio, showcases its potential in handling complex diarization scenarios with high accuracy and efficiency. 
