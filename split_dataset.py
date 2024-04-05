@@ -9,15 +9,34 @@ import json
 from faster_whisper import WhisperModel
 import stable_whisper
 import multiprocessing
+from cleaner import multilingual_cleaners
+
 
 # input audio file
-input_audio = "input/Elon_Musk_War_AI_Aliens_Politics_Physics.mp3"
+language = "en"
+input_audio_files  = [
+    "input/CoinToss.mp3"
+    # "input/SamuelLJackson.mp3",
+    # "input/Elon Musk Podcast #49.mp3",
+    # "input/Elon Musk Podcast #252.mp3",
+    # "input/Elon Musk Podcast #400.mp3",
+]
 output_directory = 'output_sentences'
 
-# number of processes to use
-whisper_model = "large-v2"
+# for faster transcription disable transcript refinement
+# and use a smaller model like tiny, tiny.en, small, medium
+TRANSCRIPT_REFINEMENT = True
+whisper_model = "tiny.en"
+
+extend_detected_borders_start = 0.05
+extend_detected_borders_end = 0.15
+
+# https://github.com/coqui-ai/TTS/blob/dev/TTS/tts/layers/xtts/tokenizer.py#L597
+max_text_len = 250
 max_processes = 1
 
+MB = 1024 * 1024  # Bytes in a Megabyte
+CHUNK_SIZE_MB = 20  # Desired file chunk size in MB
 
 def find_optimal_breakpoints(points: List[float], n: int) -> List[float]:
     result = []
@@ -118,11 +137,12 @@ def transcribe_file(file_name, model):
         regroup=False  # disable default regrouping logic
         )
 
-    result = model.refine(
-        file_name,
-        result,
-        precision=0.05,
-    )
+    if TRANSCRIPT_REFINEMENT:
+        result = model.refine(
+            file_name,
+            result,
+            precision=0.05,
+        )
 
     result = (
         result.clamp_max()
@@ -144,10 +164,21 @@ def format_seconds_to_hms(seconds):
     return f"{hours:02}:{minutes:02}:{seconds:04.1f}"
 
 
+# Function to calculate number of chunks based on file size
+def calculate_max_chunks(file_path, chunk_size_mb):
+    file_size_bytes = os.path.getsize(file_path)
+    file_size_mb = file_size_bytes / MB
+    return max(1, int(file_size_mb / chunk_size_mb))
+
+
 def transcribe_audio(input_file: str, max_processes = 0,
-                     silence_threshold: str = "-20dB", silence_duration: float = 2.0, model=None, max_chunks=1) -> str:
+                     silence_threshold: str = "-20dB", silence_duration: float = 2.0, model=None) -> str:
     if max_processes > multiprocessing.cpu_count() or max_processes == 0:
         max_processes = multiprocessing.cpu_count()
+
+
+    # Calculate max chunks based on file size
+    max_chunks = calculate_max_chunks(input_file, CHUNK_SIZE_MB)
 
     # Split the audio into chunks
     temp_files_array, lengths = split_audio_into_chunks(input_file, max_chunks, silence_threshold, silence_duration)
@@ -188,6 +219,9 @@ def transcribe_audio(input_file: str, max_processes = 0,
             sentence_start += offsets[file_index]
             sentence_end += offsets[file_index]
 
+            if len(sentence_text) > max_text_len:
+                print(f"Skipping long sentence: {sentence_text}")
+                continue
             sentences.append((sentence_start, sentence_end, sentence_text))
 
     end = time.time()
@@ -267,8 +301,10 @@ def save_transcription(transcription, audio_file):
 def format_seconds_to_hms_full_seconds(seconds):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    fraction_seconds = int((seconds % 1) * 10)
     seconds = int(seconds % 60)
-    return f"{hours:02d}{minutes:02d}{seconds:02d}"
+    return f"{hours:02d}{minutes:02d}{seconds:02d}{fraction_seconds}"
 
 
 def sanitize_filename(text):
@@ -291,10 +327,11 @@ def save_audio_segment(input_file, start_seconds, end_seconds, sentence_text, ou
 
     # Sanitize the sentence text for file naming
     safe_sentence_text = sanitize_filename(sentence_text)
-    safe_sentence_text = safe_sentence_text[:15]
+    safe_sentence_text = safe_sentence_text[:25]
 
     # Prepare the output file name
-    file_name = f"{start_formatted}-{end_formatted}_{safe_sentence_text[:15].replace(' ', '_').replace('/', '_')}.mp3"
+    file_name = f"{start_formatted}-{end_formatted}_{len(safe_sentence_text)}_{safe_sentence_text[:15].replace(' ', '_').replace('/', '_')}.mp3"
+
     output_path = os.path.join(output_dir, file_name)
 
     # Use ffmpeg library to cut the audio segment
@@ -308,63 +345,107 @@ def save_audio_segment(input_file, start_seconds, end_seconds, sentence_text, ou
     return output_path
 
 
+def preprocess(sentences):
+    for index, sentence in enumerate(sentences):
+        start, end, text = sentence
+        text_before = text
+        text = multilingual_cleaners(text_before, language)
+        if text != text_before:
+            print(f"Preprocessed {text_before} to {text}")
+        sentences[index] = (start, end, text)
+
+
 if __name__ == "__main__":
     # Check for an existing transcription file
-    transcription_file = check_transcription_file(input_audio)
-    if transcription_file:
-        # Load transcription from the file
-        sentences = load_transcription(transcription_file)
-    else:
-        # Perform transcription
-        model = stable_whisper.load_model(whisper_model)
-        sentences = transcribe_audio(input_audio, max_processes, silence_threshold="-20dB", silence_duration=2, model=model, max_chunks=8)
-        # Merging sentences
-        sentences = merge_sentences(sentences)
-        # Save transcription to a file
-        save_transcription(sentences, input_audio)
+    model = None
+
+    for input_audio in input_audio_files:
+        print(f"Processing {input_audio}")
+
+        transcription_file = check_transcription_file(input_audio)
+        if transcription_file:
+            # Load transcription from the file
+            sentences = load_transcription(transcription_file)
+        else:
+            # Perform transcription
+            if model is None:
+                model = stable_whisper.load_model(whisper_model)
+
+            sentences = transcribe_audio(
+                input_audio,
+                max_processes,
+                silence_threshold="-20dB",
+                silence_duration=2,
+                model=model)
+
+            # Merging sentences
+            sentences = merge_sentences(sentences)
+
+            # Save transcription to a file
+            save_transcription(sentences, input_audio)
+
+        # Preprocess sentences
+        # Prepare texts for optimal training
+        print("Preprocessing sentences texts")
+
+        preprocess(sentences)
+
+        # Remove sentences with 0 or negative duration before merging
+        sentences = [sentence for sentence in sentences if sentence[1] > sentence[0]]
+
+        for index, sentence in enumerate(sentences):
+            start, end, text = sentence
+            if end <= start:
+                print(f"Pretest Skipping {text} ({start}-{end}) due to negative duration")
+            if index > 0:
+                _, prev_end, _ = sentences[index - 1]
+                if start < prev_end:
+                    print(f"Pretest Skipping {text} ({start}-{end}) due to overlap")
+
+        # Filter out sentences with text longer than max_text_len
+        final_sentences = []
+        for sentence in sentences:
+            if len(sentence[2]) > max_text_len:
+                print(f"Removed: {sentence[2]} (Text too long: length {len(sentence[2])} > max_text_len {max_text_len})")
+                continue
+            final_sentences.append(sentence)
+
+        sentences = final_sentences
+
+        # Write sentences to disk
+        print("Writing sentences to disk")
+        # Ensure output directory exists
+        if not os.path.exists(output_directory):
+            os.makedirs(output_directory)
 
 
-    # Remove sentences with 0 or negative duration before merging
-    sentences = [sentence for sentence in sentences if sentence[1] > sentence[0]]
+        for index, sentence in enumerate(sentences):
+            start, end, text = sentence
 
-    for index, sentence in enumerate(sentences):
-        start, end, text = sentence
-        if end <= start:
-            print(f"Pretest Skipping {text} ({start}-{end}) due to negative duration")
-        if index > 0:
-            _, prev_end, _ = sentences[index - 1]
-            if start < prev_end:
-                print(f"Pretest Skipping {text} ({start}-{end}) due to overlap")
+            new_start = start
+            if index > 0:
+                _, prev_end, _ = sentences[index - 1]
+                middle = start - (start - prev_end) / 2
+                new_start = middle
+                if start - middle > extend_detected_borders_start:
+                    new_start = start - extend_detected_borders_start
 
-    # Merging sentences
-    sentences = merge_sentences(sentences)
+            new_end = end
+            if index < len(sentences) - 1:
+                next_start, _, _ = sentences[index + 1]
+                middle = end + (next_start - end) / 2
+                new_end = middle
+                if middle - end > extend_detected_borders_end:
+                    new_end = end + extend_detected_borders_end
 
-    for index, sentence in enumerate(sentences):
-        start, end, text = sentence
+            startf = format_seconds_to_hms(new_start)
+            endf = format_seconds_to_hms(new_end)
 
-        new_start = start
-        if index > 0:
-            _, prev_end, _ = sentences[index - 1]
-            middle = start - (start - prev_end) / 2
-            new_start = middle
-            if start - middle > 0.5:
-                new_start = start - 0.5
+            print(f"{startf}-{endf}: {text}")
 
-        new_end = end
-        if index < len(sentences) - 1:
-            next_start, _, _ = sentences[index + 1]
-            middle = end + (next_start - end) / 2
-            new_end = middle
-            if middle - end > 0.5:
-                new_end = end + 0.5
+            if new_end < new_start:
+                print(f"Skipping {text} ({new_start}-{new_end}) due to negative duration")
+                continue
 
-        startf = format_seconds_to_hms(new_start)
-        endf = format_seconds_to_hms(new_end)
+            save_audio_segment(input_audio, new_start, new_end, text, output_directory)
 
-        print(f"{startf}-{endf}: {text}")
-
-        if new_end < new_start:
-            print(f"Skipping {text} ({start}-{end}) due to negative duration")
-            continue
-
-        save_audio_segment(input_audio, new_start, new_end, text, output_directory)

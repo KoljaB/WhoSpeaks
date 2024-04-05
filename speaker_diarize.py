@@ -35,8 +35,8 @@ input_directory = 'output_sentences_wav'
 output_directory = 'output_speakers'
 max_sentences = 1000000
 group_percentage = 0.1
-minimum_duration = 4
-only_keep_most_confident_percentage = 0.5
+minimum_duration = 1
+only_keep_most_confident_percentage = 0.8
 
 data = []
 

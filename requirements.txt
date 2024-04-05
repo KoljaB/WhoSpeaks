@@ -110,6 +110,7 @@ protobuf==5.26.1
 psutil==5.9.8
 pure-eval==0.2.2
 pvporcupine==1.9.5
+pyannote-audio==3.1.1
 PyAudio==0.2.14
 pycparser==2.22
 pydantic==2.6.4

@@ -3,11 +3,16 @@ from os.path import exists, join, splitext
 import os
 
 urls = [
-    "https://www.youtube.com/watch?v=JN3KPFbWCy8", # Elon Musk / Lex Fridman Round 4
-    "https://www.youtube.com/watch?v=DxREm3s1scA", # Elon Musk / Lex Fridman Round 3
-    "https://www.youtube.com/watch?v=smK9dgdTl40", # Elon Musk / Lex Fridman Round 2
-    "https://www.youtube.com/watch?v=dEv99vxKjVI", # Elon Musk / Lex Fridman Round 1
+    "https://www.youtube.com/watch?v=ZY0DG8rUnCA",
+    #"https://www.youtube.com/watch?v=0tvebuNmp-I"
+    # "https://www.youtube.com/watch?v=GGoCBAo9N_g"
+    # "https://www.youtube.com/watch?v=JN3KPFbWCy8", # Elon Musk / Lex Fridman Round 4
+    # "https://www.youtube.com/watch?v=DxREm3s1scA", # Elon Musk / Lex Fridman Round 3
+    # "https://www.youtube.com/watch?v=smK9dgdTl40", # Elon Musk / Lex Fridman Round 2
+    # "https://www.youtube.com/watch?v=dEv99vxKjVI", # Elon Musk / Lex Fridman Round 1
 ]
+
+
 directory = "input"
 
 
