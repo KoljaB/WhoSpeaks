@@ -30,13 +30,13 @@ To demonstrate WhoSpeaks' capabilities, I made a test using a challenging audio 
 
 ### Process:
 
-1. **Download**: Using `fetch_youtube_mp3.py`, we downloaded the MP3 from the scene's YouTube video.
-2. **Diarization Comparison**: We first ran the scene through `pyannote_diarize.py` (from pyannote audio) and set the speaker parameters to 2.
+1. **Download**: Using `fetch_youtube_mp3.py`, download the MP3 from the scene's YouTube video.
+2. **Diarization Comparison**: Run the scene through `pyannote_diarize.py` (from pyannote audio) and set the speaker parameters to 2.
    - Pyannote's output was inaccurate, assigning most sentences to one speaker incorrectly.
 3. **WhoSpeaks Analysis**: 
-   - **Sentence Splitting**: We used `split_dataset.py` with `tiny.en` for efficiency, though `large-v2` offers higher accuracy.
-   - **Conversion**: The MP3 segments were converted to WAV format using `convert_wav.py`.
-   - **Diarization**: We then ran `auto_diarize.py` and visually inspected the dendrogram file to confirm the presence of two speakers.
+   - **Sentence Splitting**: Use `split_dataset.py` with `tiny.en` for efficiency, though `large-v2` offers higher accuracy.
+   - **Conversion**: The MP3 segments are converted to WAV format using `convert_wav.py`.
+   - **Diarization**: Then run `auto_diarize.py` and visually inspect the dendrogram file to confirm the presence of two speakers.
 
 ### Results:
 
