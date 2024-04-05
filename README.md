@@ -25,7 +25,7 @@ I initially developed this as a personal project, but was astounded by its effec
 
 ## Performance and Testing
 
-To demonstrate WhoSpeaks' capabilities, we conducted a test using a challenging audio sample: the 4:38 Coin Toss scene from "No Country for Old Men". In this scene, the two male speakers have very similar voice profiles, presenting a difficult scenario for diarization libraries.
+To demonstrate WhoSpeaks' capabilities, I made a test using a challenging audio sample: the 4:38 Coin Toss scene from "No Country for Old Men". In this scene, the two male speakers have very similar voice profiles, presenting a difficult scenario for diarization libraries.
 
 ### Process:
 
