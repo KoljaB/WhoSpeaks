@@ -35,7 +35,7 @@ To demonstrate WhoSpeaks' capabilities, we conducted a test using a challenging 
 3. **WhoSpeaks Analysis**: 
    - **Sentence Splitting**: We used `split_dataset.py` with `tiny.en` for efficiency, though `large-v2` offers higher accuracy.
    - **Conversion**: The MP3 segments were converted to WAV format using `convert_wav.py`.
-   - **Diarization**: We then ran `speaker_diarize.py` and visually inspected the dendrogram file to confirm the presence of two speakers.
+   - **Diarization**: We then ran `auto_diarize.py` and visually inspected the dendrogram file to confirm the presence of two speakers.
 
 ### Results:
 
