@@ -17,7 +17,7 @@ These steps allow us to match any sentence against the established speaker profi
 - **fetch_youtube_mp3.py**: Extracts and converts YouTube audio, like podcasts, to MP3 for voice analysis.
 - **split_dataset.py**: This tool divides your input audio into distinct sentences.
 - **convert_wav.py**: Converts the sentence-based MP3 files into WAV format.
-- **speaker_diarize.py**: Heart of WhoSpeaks. Categorizes sentences into speaker groups and selects training sentences based on the unique algorithm described above.
+- **auto_diarize.py**/**speaker_diarize.py**: Heart of WhoSpeaks. Categorizes sentences into speaker groups and selects training sentences based on the unique algorithm described above.
 
 > **Note**: *current implementation is for two speakers*
 
