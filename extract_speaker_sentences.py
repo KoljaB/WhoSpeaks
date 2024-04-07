@@ -123,4 +123,3 @@ for index, entry in enumerate(data):
     # Copy the file to the percentile directory with new filename
     shutil.copy(source_path, destination_path)
     print(f"Copied {entry['filename']} to {destination_path}")
-
