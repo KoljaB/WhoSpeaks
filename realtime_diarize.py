@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication, QTextEdit, QMainWindow, QLabel, QVBoxLayout, QWidget, QDoubleSpinBox, QHBoxLayout
+from PyQt6.QtWidgets import QApplication, QTextEdit, QMainWindow, QLabel, QVBoxLayout, QWidget, QDoubleSpinBox, QHBoxLayout, QPushButton, QSpacerItem, QSizePolicy
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QEvent, QTimer
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from TTS.tts.models import setup_model as setup_tts_model
@@ -18,10 +18,10 @@ SILENCE_THRESHS = [0, 0.4]
 FAST_SENTENCE_END = True
 
 # Set to False to use loopback device to record from stereo mix output
-USE_MICROPHONE = True
+USE_MICROPHONE = False
 LOOPBACK_DEVICE_NAME = "stereomix"
 LOOPBACK_DEVICE_HOST_API = 0
-FINAL_TRANSCRIPTION_MODEL = "large-v3"
+FINAL_TRANSCRIPTION_MODEL = "large-v2"
 FINAL_BEAM_SIZE = 5
 REALTIME_TRANSCRIPTION_MODEL = "distil-small.en"
 REALTIME_BEAM_SIZE = 5
@@ -31,8 +31,8 @@ WEBRTC_SENSITIVITY = 3
 MIN_LENGTH_OF_RECORDING = 0.7
 PRE_RECORDING_BUFFER_DURATION = 0.35
 
-INIT_TWO_SPEAKER_THRESHOLD = 19
-INIT_SILHOUETTE_DIFF_THRESHOLD = 0.01
+INIT_TWO_SPEAKER_THRESHOLD = 17
+INIT_SILHOUETTE_DIFF_THRESHOLD = 0.0001
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -187,7 +187,7 @@ class RecordingThread(QThread):
         if USE_MICROPHONE:
             input_device_index = 0  # Default input device (microphone)
         else:
-            input_device_index, _ = self.find_stereo_mix_index()
+            input_device_index, _ = find_stereo_mix_index()
             if input_device_index is None:
                 print("Loopback / Stereo Mix device not found")
                 print("Available devices:\n", devices)
@@ -239,6 +239,53 @@ class SentenceWorker(QThread):
             except queue.Empty:
                 continue
 
+    # Safety check using KMeans for initial speaker detection
+    def determine_optimal_cluster_count(self, embeddings_scaled):
+        num_embeddings = len(embeddings_scaled)
+        if num_embeddings <= 1:
+            # Only one embedding, so only one speaker
+            return 1
+        
+        # Determine single or multiple speakers
+        # K-means Clustering with k=2
+        kmeans = KMeans(n_clusters=2, random_state=0).fit(embeddings_scaled)
+        distances = kmeans.transform(embeddings_scaled)
+        avg_distance = np.mean(np.min(distances, axis=1))
+        distance_threshold = two_speaker_threshold  # Threshold to decide if we have one or multiple speakers
+
+        # Check if the average distance is below threshold for single speaker
+        if avg_distance < distance_threshold:
+            print(f"Single Speaker: low embedding distance: {avg_distance} < {distance_threshold}.")
+            return 1
+
+        # Hierarchical Clustering for multiple speakers
+        max_clusters = min(10, num_embeddings)
+        range_clusters = range(2, max_clusters + 1)
+        silhouette_scores = []
+
+        for n_clusters in range_clusters:
+            hc = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+            cluster_labels = hc.fit_predict(embeddings_scaled)
+
+            unique_labels = set(cluster_labels)
+            if 1 < len(unique_labels) < len(embeddings_scaled):
+                silhouette_avg = silhouette_score(embeddings_scaled, cluster_labels)
+                silhouette_scores.append(silhouette_avg)
+            else:
+                print(f"Inappropriate number of clusters: {len(unique_labels)}.")
+                silhouette_scores.append(-1)
+
+
+        # Find the optimal number of clusters
+        # It's the point before the silhouette score starts to decrease significantly
+        optimal_cluster_count = 2
+        for i in range(1, len(silhouette_scores)):
+            if silhouette_scores[i] < silhouette_scores[i-1] + silhouette_diff_threshold:
+                optimal_cluster_count = range_clusters[i-1]
+                break
+
+        return optimal_cluster_count
+
     def process_speakers(self):
         embeddings = [speaker_embedding for _, speaker_embedding in self.full_sentences]
 
@@ -247,49 +294,7 @@ class SentenceWorker(QThread):
         scaler = StandardScaler()
         embeddings_scaled = scaler.fit_transform(embeddings_array)
 
-        num_embeddings = len(embeddings_scaled)
-        if num_embeddings <= 1:
-            # Only one embedding, so only one speaker
-            optimal_cluster_count = 1
-        else:
-            # Determine single or multiple speakers
-            # K-means Clustering with k=2
-            kmeans = KMeans(n_clusters=2, random_state=0).fit(embeddings_scaled)
-            distances = kmeans.transform(embeddings_scaled)
-            avg_distance = np.mean(np.min(distances, axis=1))
-            distance_threshold = two_speaker_threshold
-
-            # Determine Single or Multiple Speakers
-            if avg_distance < distance_threshold:
-                optimal_cluster_count = 1  # Only one speaker
-                print(f"Single Speaker: low embedding distance: {avg_distance} < {distance_threshold}.")
-            else:
-                max_clusters = min(10, num_embeddings)
-                range_clusters = range(2, max_clusters + 1)
-                silhouette_scores = []
-
-                for n_clusters in range_clusters:
-                    hc = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
-                    cluster_labels = hc.fit_predict(embeddings_scaled)
-
-                    unique_labels = set(cluster_labels)
-                    if 1 < len(unique_labels) < len(embeddings_scaled):
-                        silhouette_avg = silhouette_score(embeddings_scaled, cluster_labels)
-                        silhouette_scores.append(silhouette_avg)
-                    else:
-                        print(f"Inappropriate number of clusters: {len(unique_labels)}.")
-                        silhouette_scores.append(-1)
-
-                # Find the optimal number of clusters based on silhouette scores
-                optimal_cluster_count = 2
-                for i in range(1, len(silhouette_scores)):
-                    # Ensure a significant increase in the silhouette score to add a new cluster
-                    if silhouette_scores[i] - silhouette_scores[i - 1] > silhouette_diff_threshold:
-                        optimal_cluster_count = range_clusters[i]
-                    else:
-                        print(f"Silhouette score difference too low: {silhouette_scores[i] - silhouette_scores[i - 1]}.")
-
-                print(f"{optimal_cluster_count} Speakers: high embedding distance: {avg_distance} > {distance_threshold}.")
+        optimal_cluster_count = self.determine_optimal_cluster_count(embeddings_scaled)
 
         if optimal_cluster_count == 1:
             self.sentence_speakers = [0] * len(self.full_sentences)
@@ -391,6 +396,7 @@ class MainWindow(QMainWindow):
                 background: #333;
                 color: #ddd;
                 border: 1px solid #555;
+                margin-bottom: 22px;
             }
             QTextEdit {
                 background-color: #1e1e1e;
@@ -401,7 +407,7 @@ class MainWindow(QMainWindow):
         """)
 
     def create_controls(self):
-        # Add the TWO_SPEAKER_THRESHOLD control
+
         self.two_speaker_threshold_desc = QLabel("For one or two speakers differentiation:")
         self.two_speaker_threshold_label = QLabel("Two cluster similarity (0.1-100)")
         self.two_speaker_threshold_spinbox = QDoubleSpinBox()
@@ -409,13 +415,13 @@ class MainWindow(QMainWindow):
         self.two_speaker_threshold_spinbox.setSingleStep(0.1)
         self.two_speaker_threshold_spinbox.setValue(two_speaker_threshold)
         self.two_speaker_threshold_spinbox.valueChanged.connect(self.update_two_speaker_threshold)
-        
-        # Add the SILHOUETTE_DIFF_THRESHOLD control
+
         self.silhouette_diff_threshold_desc = QLabel("For more than two speakers differentiation:")
         self.silhouette_diff_threshold_label = QLabel("Silhouette similarity (0.001-1)")
         self.silhouette_diff_threshold_spinbox = QDoubleSpinBox()
-        self.silhouette_diff_threshold_spinbox.setRange(0.001, 1)
-        self.silhouette_diff_threshold_spinbox.setSingleStep(0.001)
+        self.silhouette_diff_threshold_spinbox.setDecimals(5)
+        self.silhouette_diff_threshold_spinbox.setRange(0, 0.01)
+        self.silhouette_diff_threshold_spinbox.setSingleStep(0.00001)
         self.silhouette_diff_threshold_spinbox.setValue(silhouette_diff_threshold)
         self.silhouette_diff_threshold_spinbox.valueChanged.connect(self.update_silhouette_diff_threshold)
 
@@ -435,9 +441,31 @@ class MainWindow(QMainWindow):
         self.rightLayout.addWidget(self.two_speaker_threshold_desc)
         self.rightLayout.addWidget(self.two_speaker_threshold_label)
         self.rightLayout.addWidget(self.two_speaker_threshold_spinbox)
+
         self.rightLayout.addWidget(self.silhouette_diff_threshold_desc)
         self.rightLayout.addWidget(self.silhouette_diff_threshold_label)
         self.rightLayout.addWidget(self.silhouette_diff_threshold_spinbox)
+
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.clicked.connect(self.clear_state)
+        self.rightLayout.addWidget(self.clear_button)
+
+    def clear_state(self):
+        # Clear text edit
+        self.text_edit.clear()
+
+        # Reset state variables
+        self.displayed_text = ""
+        self.last_realtime_text = ""
+        self.full_sentences = []
+        self.sentence_speakers = []
+        self.pending_sentences = []
+        self.worker_thread.full_sentences = []
+        self.worker_thread.sentence_speakers = []
+        self.worker_thread.speakers = []
+
+        # Optional: Provide a message in text edit to indicate clearing
+        self.text_edit.setHtml("<i>All cleared. Ready for new input.</i>")
 
     def update_ui(self):
         self.worker_thread.process_speakers()
@@ -461,7 +489,7 @@ class MainWindow(QMainWindow):
             if not self.initialized:
                 self.initialized = True
                 self.resize(1200, 800)
-                self.update_text("Please wait until app is loaded")
+                self.update_text("<i>Please wait until app is loaded</i>")
 
                 QTimer.singleShot(500, self.init)
 
@@ -541,7 +569,7 @@ class MainWindow(QMainWindow):
 
     def recorder_ready(self):
         print("Recorder ready")
-        self.update_text("Ready to record")
+        self.update_text("<i>Ready to record</i>")
 
         self.capture_output_and_feed_to_recorder()
 
