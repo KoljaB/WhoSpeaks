@@ -1,25 +1,25 @@
 print("Auto Speaker Diarization with Hierarchical Clustering")
 
-import os
-import numpy as np
-import shutil
-import librosa
-import torch
+from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+import scipy.cluster.hierarchy as sch
 from TTS.tts.models import setup_model as setup_tts_model
 from TTS.config import load_config
-from scipy.spatial.distance import cosine
-from sklearn.cluster import DBSCAN
-from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-import scipy.cluster.hierarchy as sch
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics import silhouette_score
+import numpy as np
+import librosa
+import shutil
+import torch
+import os
 
 # Setup
 input_directory = 'output_sentences_wav'
 output_directory = 'output_speakers'
 max_sentences = 1000
 minimum_duration = 0.5
+two_speaker_threshold = 19
+silhouette_diff_threshold = 0.01  # Adjust as needed for your data
 data = []
 
 print("Loading TTS model")
@@ -70,19 +70,56 @@ embeddings_scaled = scaler.fit_transform(embeddings_array)
 # Hierarchical Clustering
 linked = sch.linkage(embeddings_scaled, method='ward')
 
-# Hierarchical Clustering
-linked = sch.linkage(embeddings_scaled, method='ward')
+# Safety check using KMeans for initial speaker detection
+def determine_optimal_cluster_count(embeddings_scaled):
+    num_embeddings = len(embeddings_scaled)
+    if num_embeddings <= 1:
+        # Only one embedding, so only one speaker
+        return 1
+    else:
+        # Determine single or multiple speakers
+        # K-means Clustering with k=2
+        kmeans = KMeans(n_clusters=2, random_state=0).fit(embeddings_scaled)
+        distances = kmeans.transform(embeddings_scaled)
+        avg_distance = np.mean(np.min(distances, axis=1))
+        distance_threshold = two_speaker_threshold  # Threshold to decide if we have one or multiple speakers
 
-# Silhouette Analysis for Determining Optimal Number of Clusters
-range_clusters = [i for i in range(2, 11)]  # Examining 2 to 10 clusters
-silhouette_scores = []
-for n_clusters in range_clusters:
-    hc = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
-    cluster_labels = hc.fit_predict(embeddings_scaled)
-    silhouette_avg = silhouette_score(embeddings_scaled, cluster_labels)
-    silhouette_scores.append(silhouette_avg)
+        if avg_distance < distance_threshold:
+            print(f"Single Speaker: low embedding distance: {avg_distance} < {distance_threshold}.")
+            return 1
+        else:
+            # Hierarchical Clustering for multiple speakers
+            max_clusters = min(10, num_embeddings)
+            range_clusters = range(2, max_clusters + 1)
+            silhouette_scores = []
 
-optimal_cluster_count = range_clusters[silhouette_scores.index(max(silhouette_scores))]
+            for n_clusters in range_clusters:
+                hc = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+                cluster_labels = hc.fit_predict(embeddings_scaled)
+
+                unique_labels = set(cluster_labels)
+                if 1 < len(unique_labels) < len(embeddings_scaled):
+                    silhouette_avg = silhouette_score(embeddings_scaled, cluster_labels)
+                    silhouette_scores.append(silhouette_avg)
+                else:
+                    print(f"Inappropriate number of clusters: {len(unique_labels)}.")
+                    silhouette_scores.append(-1)
+
+            # Find the optimal number of clusters based on silhouette scores
+            optimal_cluster_count = 2
+            for i in range(1, len(silhouette_scores)):
+                # Ensure a significant increase in the silhouette score to add a new cluster
+                if silhouette_scores[i] - silhouette_scores[i - 1] > silhouette_diff_threshold:
+                    optimal_cluster_count = range_clusters[i]
+                # else:
+                #     print(f"Silhouette score difference too low: {silhouette_scores[i] - silhouette_scores[i - 1]}.")
+
+            # optimal_cluster_count = range_clusters[silhouette_scores.index(max(silhouette_scores))]
+
+            return optimal_cluster_count
+
+# Determine the optimal number of clusters
+optimal_cluster_count = determine_optimal_cluster_count(embeddings_scaled)
 
 # Plotting the dendrogram
 plt.figure(figsize=(10, 7))
