@@ -1,12 +1,10 @@
-from PyQt6.QtWidgets import QApplication, QTextEdit, QMainWindow
-from PyQt6.QtCore import pyqtSignal, QThread, QEvent, QTimer
+from PyQt6.QtWidgets import QApplication, QTextEdit, QMainWindow, QLabel, QVBoxLayout, QWidget, QDoubleSpinBox, QHBoxLayout
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QEvent, QTimer
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from TTS.tts.models import setup_model as setup_tts_model
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
 from RealtimeSTT import AudioToTextRecorder
-from scipy.spatial.distance import cosine
-import scipy.cluster.hierarchy as sch
 from TTS.config import load_config
 import numpy as np
 import pyaudio
@@ -18,17 +16,29 @@ import os
 
 SILENCE_THRESHS = [0, 0.4]
 FAST_SENTENCE_END = True
+
+# Set to False to use loopback device to record from stereo mix output
+USE_MICROPHONE = True
 LOOPBACK_DEVICE_NAME = "stereomix"
 LOOPBACK_DEVICE_HOST_API = 0
+FINAL_TRANSCRIPTION_MODEL = "large-v3"
+FINAL_BEAM_SIZE = 5
+REALTIME_TRANSCRIPTION_MODEL = "distil-small.en"
+REALTIME_BEAM_SIZE = 5
+TRANSCRIPTION_LANGUAGE = "en"
+SILERO_SENSITIVITY = 0.4
+WEBRTC_SENSITIVITY = 3
+MIN_LENGTH_OF_RECORDING = 0.7
+PRE_RECORDING_BUFFER_DURATION = 0.35
 
-# TWO_SPEAKER_THRESHOLD = 0.8
-TWO_SPEAKER_THRESHOLD = 19
-SILHOUETTE_DIFF_THRESHOLD = 0.01  # Adjust as needed for your data
+INIT_TWO_SPEAKER_THRESHOLD = 19
+INIT_SILHOUETTE_DIFF_THRESHOLD = 0.01
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 SAMPLE_RATE = 16000
 BUFFER_SIZE = 512
+
 
 COLOR_TABLE_HEX = [
     "#FFFF00",  # yellow
@@ -95,6 +105,9 @@ COLOR_TABLE_HEX = [
     "#4B0082",  # indigo
 ]
 
+two_speaker_threshold = INIT_TWO_SPEAKER_THRESHOLD
+silhouette_diff_threshold = INIT_SILHOUETTE_DIFF_THRESHOLD
+
 
 class TextRetrievalThread(QThread):
     textRetrievedFinal = pyqtSignal(str, np.ndarray)
@@ -112,20 +125,20 @@ class TextRetrievalThread(QThread):
         recorder_config = {
             'spinner': False,
             'use_microphone': False,
-            'model': 'large-v3',
-            'language': 'en',
-            'silero_sensitivity': 0.4,
-            'webrtc_sensitivity': 3,
+            'model': FINAL_TRANSCRIPTION_MODEL,
+            'language': TRANSCRIPTION_LANGUAGE,
+            'silero_sensitivity': SILERO_SENSITIVITY,
+            'webrtc_sensitivity': WEBRTC_SENSITIVITY,
             'post_speech_silence_duration': SILENCE_THRESHS[1],
-            'min_length_of_recording': 0.7,
-            'pre_recording_buffer_duration': 0.35,
+            'min_length_of_recording': MIN_LENGTH_OF_RECORDING,
+            'pre_recording_buffer_duration': PRE_RECORDING_BUFFER_DURATION,
             'min_gap_between_recordings': 0,
             'enable_realtime_transcription': True,
             'realtime_processing_pause': 0,
-            'realtime_model_type': 'distil-small.en',
+            'realtime_model_type': REALTIME_TRANSCRIPTION_MODEL,
             'on_realtime_transcription_update': self.live_text_detected,
-            'beam_size': 5,
-            'beam_size_realtime': 5,
+            'beam_size': FINAL_BEAM_SIZE,
+            'beam_size_realtime': REALTIME_BEAM_SIZE,
             'buffer_size': BUFFER_SIZE,
             'sample_rate': SAMPLE_RATE,
         }
@@ -170,15 +183,18 @@ class RecordingThread(QThread):
 
             return None, devices
 
-        stereo_mix_index, devices = find_stereo_mix_index()
-
-        if stereo_mix_index is None:
-            print("Stereo Mix device not found")
-            print("Available devices:\n", devices)
-            self.audio.terminate()
-            exit()
+        # Selecting the input device based on USE_MICROPHONE flag
+        if USE_MICROPHONE:
+            input_device_index = 0  # Default input device (microphone)
         else:
-            print(f"Stereo Mix device found at index: {stereo_mix_index}")
+            input_device_index, _ = self.find_stereo_mix_index()
+            if input_device_index is None:
+                print("Loopback / Stereo Mix device not found")
+                print("Available devices:\n", devices)
+                self.audio.terminate()
+                exit()
+            else:
+                print(f"Stereo Mix device found at index: {input_device_index}")
 
         self.stream = self.audio.open(
             format=FORMAT,
@@ -186,7 +202,7 @@ class RecordingThread(QThread):
             rate=SAMPLE_RATE,
             input=True,
             frames_per_buffer=BUFFER_SIZE,
-            input_device_index=stereo_mix_index)
+            input_device_index=input_device_index)
         self.recorder = recorder
         self._is_running = True
 
@@ -241,12 +257,12 @@ class SentenceWorker(QThread):
             kmeans = KMeans(n_clusters=2, random_state=0).fit(embeddings_scaled)
             distances = kmeans.transform(embeddings_scaled)
             avg_distance = np.mean(np.min(distances, axis=1))
-            distance_threshold = TWO_SPEAKER_THRESHOLD
+            distance_threshold = two_speaker_threshold
 
             # Determine Single or Multiple Speakers
             if avg_distance < distance_threshold:
                 optimal_cluster_count = 1  # Only one speaker
-                print(f"1 Speaker: low embedding distance: {avg_distance} < {distance_threshold}.")
+                print(f"Single Speaker: low embedding distance: {avg_distance} < {distance_threshold}.")
             else:
                 max_clusters = min(10, num_embeddings)
                 range_clusters = range(2, max_clusters + 1)
@@ -268,7 +284,7 @@ class SentenceWorker(QThread):
                 optimal_cluster_count = 2
                 for i in range(1, len(silhouette_scores)):
                     # Ensure a significant increase in the silhouette score to add a new cluster
-                    if silhouette_scores[i] - silhouette_scores[i - 1] > SILHOUETTE_DIFF_THRESHOLD:
+                    if silhouette_scores[i] - silhouette_scores[i - 1] > silhouette_diff_threshold:
                         optimal_cluster_count = range_clusters[i]
                     else:
                         print(f"Silhouette score difference too low: {silhouette_scores[i] - silhouette_scores[i - 1]}.")
@@ -345,14 +361,99 @@ class MainWindow(QMainWindow):
         # self.speakers = []
         self.queue = queue.Queue()
 
+        # Create the main layout as horizontal
+        self.mainLayout = QHBoxLayout()
+
+        # Add the text edit to the main layout
         self.text_edit = QTextEdit(self)
-        self.text_edit.setStyleSheet("""
-            background-color: #1e1e1e;
-            color: #ffffff;
-            font-family: 'Arial';
-            font-size: 16pt;
+        self.mainLayout.addWidget(self.text_edit, 1)
+
+        # Create the right layout for controls and add them to the main layout
+        self.rightLayout = QVBoxLayout()
+        self.rightLayout.setAlignment(Qt.AlignmentFlag.AlignTop)  # Align controls to the top
+        self.create_controls()
+
+        # Create a container for the right layout
+        self.rightContainer = QWidget()
+        self.rightContainer.setLayout(self.rightLayout)
+        self.mainLayout.addWidget(self.rightContainer, 0)  # Controls get the space they need
+
+        # Set the main layout to the central widget
+        self.centralWidget = QWidget()
+        self.centralWidget.setLayout(self.mainLayout)
+        self.setCentralWidget(self.centralWidget)
+
+        self.setStyleSheet("""
+            QLabel {
+                color: #ddd;
+            }
+            QDoubleSpinBox {
+                background: #333;
+                color: #ddd;
+                border: 1px solid #555;
+            }
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                font-family: 'Arial';
+                font-size: 16pt;
+            }
         """)
-        self.setCentralWidget(self.text_edit)
+
+    def create_controls(self):
+        # Add the TWO_SPEAKER_THRESHOLD control
+        self.two_speaker_threshold_desc = QLabel("For one or two speakers differentiation:")
+        self.two_speaker_threshold_label = QLabel("Two cluster similarity (0.1-100)")
+        self.two_speaker_threshold_spinbox = QDoubleSpinBox()
+        self.two_speaker_threshold_spinbox.setRange(0.1, 100)
+        self.two_speaker_threshold_spinbox.setSingleStep(0.1)
+        self.two_speaker_threshold_spinbox.setValue(two_speaker_threshold)
+        self.two_speaker_threshold_spinbox.valueChanged.connect(self.update_two_speaker_threshold)
+        
+        # Add the SILHOUETTE_DIFF_THRESHOLD control
+        self.silhouette_diff_threshold_desc = QLabel("For more than two speakers differentiation:")
+        self.silhouette_diff_threshold_label = QLabel("Silhouette similarity (0.001-1)")
+        self.silhouette_diff_threshold_spinbox = QDoubleSpinBox()
+        self.silhouette_diff_threshold_spinbox.setRange(0.001, 1)
+        self.silhouette_diff_threshold_spinbox.setSingleStep(0.001)
+        self.silhouette_diff_threshold_spinbox.setValue(silhouette_diff_threshold)
+        self.silhouette_diff_threshold_spinbox.valueChanged.connect(self.update_silhouette_diff_threshold)
+
+        self.two_speaker_threshold_label.setToolTip(
+            "Adjust this threshold to control how the program differentiates between one or two speakers. "
+            "Lower values mean only highly distinct voices are considered separate speakers. "
+            "Higher values allow more leniency in identifying different speakers."
+        )
+
+        self.silhouette_diff_threshold_spinbox.setToolTip(
+            "This value determines the required increase in similarity score to identify an additional speaker. "
+            "Lower values make it easier to identify more speakers. "
+            "Higher values prevent too many speakers from being identified, especially in noisy conditions."
+        )
+
+        # Add the controls to the right layout
+        self.rightLayout.addWidget(self.two_speaker_threshold_desc)
+        self.rightLayout.addWidget(self.two_speaker_threshold_label)
+        self.rightLayout.addWidget(self.two_speaker_threshold_spinbox)
+        self.rightLayout.addWidget(self.silhouette_diff_threshold_desc)
+        self.rightLayout.addWidget(self.silhouette_diff_threshold_label)
+        self.rightLayout.addWidget(self.silhouette_diff_threshold_spinbox)
+
+    def update_ui(self):
+        self.worker_thread.process_speakers()
+        self.sentence_updated(
+            self.worker_thread.full_sentences,
+            self.worker_thread.sentence_speakers)
+
+    def update_two_speaker_threshold(self, value):
+        global two_speaker_threshold
+        two_speaker_threshold = value
+        self.update_ui()
+
+    def update_silhouette_diff_threshold(self, value):
+        global silhouette_diff_threshold
+        silhouette_diff_threshold = value
+        self.update_ui()
 
     def showEvent(self, event):
         super().showEvent(event)
