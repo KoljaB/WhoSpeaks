@@ -2,6 +2,8 @@
 
 *Toolkit for Enhanced Voice Training Datasets*
 
+Note: realtime_diarize.py required changes to RealtimeSTT. Please upgrade to latest version.
+
 WhoSpeaks emerged from the need for better speaker diarization tools. Existing libraries are heavyweight and often fall short in reliability, speed and efficiency. So this project offers a more refined alternative.
 
 Here's the core concept:
@@ -37,6 +39,9 @@ To demonstrate WhoSpeaks' capabilities, I made a test using a challenging audio 
    - **Sentence Splitting**: Use `split_dataset.py` with `tiny.en` for efficiency, though `large-v2` offers higher accuracy.
    - **Conversion**: The MP3 segments are converted to WAV format using `convert_wav.py`.
    - **Diarization**: Then run `auto_diarize.py` and visually inspect the dendrogram file to confirm the presence of two speakers.
+
+To run `auto_diarize.py` and `speaker_diarize.py` it is necessary to set the environment variable COQUI_MODEL_PATH to the path containing the "v2.0.2" model folder for coqui XTTS.
+
 
 ### Results:
 

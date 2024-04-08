@@ -15,12 +15,6 @@ import sys
 import os
 
 SILENCE_THRESHS = [0, 0.4]
-FAST_SENTENCE_END = True
-
-# Set to False to use loopback device to record from stereo mix output
-USE_MICROPHONE = False
-LOOPBACK_DEVICE_NAME = "stereomix"
-LOOPBACK_DEVICE_HOST_API = 0
 FINAL_TRANSCRIPTION_MODEL = "large-v2"
 FINAL_BEAM_SIZE = 5
 REALTIME_TRANSCRIPTION_MODEL = "distil-small.en"
@@ -30,9 +24,13 @@ SILERO_SENSITIVITY = 0.4
 WEBRTC_SENSITIVITY = 3
 MIN_LENGTH_OF_RECORDING = 0.7
 PRE_RECORDING_BUFFER_DURATION = 0.35
-
 INIT_TWO_SPEAKER_THRESHOLD = 17
 INIT_SILHOUETTE_DIFF_THRESHOLD = 0.0001
+
+FAST_SENTENCE_END = True
+USE_MICROPHONE = True
+LOOPBACK_DEVICE_NAME = "stereomix"
+LOOPBACK_DEVICE_HOST_API = 0
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -146,7 +144,8 @@ class TextRetrievalThread(QThread):
         self.recorder = AudioToTextRecorder(**recorder_config)
         self.recorderStarted.emit()
 
-        def process_text(text, bytes):
+        def process_text(text):
+            bytes = self.recorder.last_transcription_bytes
             self.textRetrievedFinal.emit(text, bytes)
 
         while True:

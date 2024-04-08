@@ -129,8 +129,8 @@ pyttsx3==2.90
 pytz==2024.1
 pywin32==306
 PyYAML==6.0.1
-RealTimeSTT==0.1.12
-RealTimeTTS==0.3.43
+RealTimeSTT==0.1.13
+RealTimeTTS==0.3.44
 regex==2023.12.25
 requests==2.31.0
 safetensors==0.4.2
