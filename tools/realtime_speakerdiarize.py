@@ -1649,6 +1649,8 @@ def is_reassignment_candidate(
 ) -> bool:
     if not getattr(args, "reassign_uncertain_sentences", True):
         return False
+    if decision.assignment_source == "context":
+        return True
     if decision.created_speaker:
         return False
     if duration_seconds > args.reassign_max_seconds:
@@ -1658,15 +1660,26 @@ def is_reassignment_candidate(
     return decision.unknown_probability >= args.reassign_unknown_min
 
 
-def is_reassignment_accepted(args: argparse.Namespace, decision: SpeakerDecision) -> bool:
+def is_reassignment_accepted(
+    args: argparse.Namespace,
+    decision: SpeakerDecision,
+    duration_seconds: float,
+) -> bool:
     if not decision.assigned_speaker:
         return False
     similarity_ok = (
         decision.top_similarity is not None
         and decision.top_similarity >= args.reassign_min_similarity
     )
+    short_similarity_ok = (
+        duration_seconds <= args.reassign_short_max_seconds
+        and decision.top_similarity is not None
+        and decision.top_similarity >= args.reassign_short_min_similarity
+        and decision.margin is not None
+        and decision.margin >= args.reassign_short_min_margin
+    )
     unknown_ok = decision.unknown_probability <= args.reassign_unknown_max
-    return similarity_ok or unknown_ok
+    return similarity_ok or short_similarity_ok or unknown_ok
 
 
 def speaker_probability_key(speaker_label: str | None) -> str | None:
@@ -1707,6 +1720,8 @@ def is_context_assignment_candidate(
         return False
     if duration_seconds > args.context_assign_max_seconds:
         return False
+    if decision.assignment_source == "context":
+        return True
     if not decision.assigned_speaker:
         return True
     return decision.unknown_probability >= args.context_assign_candidate_unknown_min
@@ -1940,7 +1955,7 @@ class RealtimeSpeakerEngine:
                 record.duration_seconds,
                 force_assignment=True,
             )
-            if not is_reassignment_accepted(self.args, candidate):
+            if not is_reassignment_accepted(self.args, candidate, record.duration_seconds):
                 continue
             if old_decision.assigned_speaker == candidate.assigned_speaker:
                 continue
@@ -2021,21 +2036,70 @@ class RealtimeSpeakerEngine:
                 next_speaker = candidate.decision.assigned_speaker
                 break
 
+        embedding_decision = self.memory.score_existing(
+            record.embedding,
+            record.duration_seconds,
+            force_assignment=False,
+        )
         chosen_speaker = None
         confidence = 0.0
         if previous_speaker and next_speaker and previous_speaker == next_speaker:
             chosen_speaker = previous_speaker
             confidence = self.args.context_assign_same_speaker_confidence
+        elif previous_speaker and next_speaker:
+            chosen_speaker = self._choose_disagreeing_context_anchor(
+                embedding_decision,
+                previous_speaker,
+                next_speaker,
+            )
+            if chosen_speaker:
+                confidence = self.args.context_assign_disagree_confidence
         elif self.args.context_assign_one_sided and previous_speaker:
-            chosen_speaker = previous_speaker
-            confidence = self.args.context_assign_one_sided_confidence
+            if self._one_sided_context_allowed(embedding_decision, previous_speaker):
+                chosen_speaker = previous_speaker
+                confidence = self.args.context_assign_one_sided_confidence
         elif self.args.context_assign_one_sided and next_speaker:
-            chosen_speaker = next_speaker
-            confidence = max(0.0, self.args.context_assign_one_sided_confidence - 0.04)
+            if self._one_sided_context_allowed(embedding_decision, next_speaker):
+                chosen_speaker = next_speaker
+                confidence = max(0.0, self.args.context_assign_one_sided_confidence - 0.04)
 
         if not chosen_speaker:
+            if record.decision.assignment_source == "context":
+                return embedding_decision
             return None
         return context_adjusted_decision(record.decision, chosen_speaker, confidence)
+
+    def _choose_disagreeing_context_anchor(
+        self,
+        embedding_decision: SpeakerDecision,
+        previous_speaker: str,
+        next_speaker: str,
+    ) -> str | None:
+        similarities = embedding_decision.similarities
+        previous_similarity = float(similarities.get(previous_speaker, -1.0))
+        next_similarity = float(similarities.get(next_speaker, -1.0))
+        best_similarity = max(previous_similarity, next_similarity)
+        if best_similarity < self.args.context_assign_disagree_min_similarity:
+            return None
+        if abs(previous_similarity - next_similarity) < self.args.context_assign_disagree_margin:
+            return None
+        return previous_speaker if previous_similarity > next_similarity else next_speaker
+
+    def _one_sided_context_allowed(
+        self,
+        embedding_decision: SpeakerDecision,
+        anchor_speaker: str,
+    ) -> bool:
+        similarities = embedding_decision.similarities
+        anchor_similarity = float(similarities.get(anchor_speaker, -1.0))
+        other_similarities = [
+            float(value)
+            for speaker, value in similarities.items()
+            if speaker != anchor_speaker
+        ]
+        if not other_similarities:
+            return True
+        return max(other_similarities) - anchor_similarity <= self.args.context_assign_one_sided_block_margin
 
     def _write_temp_wav(self, job: SentenceJob, audio: np.ndarray) -> Path:
         directory = Path(self.args.segment_audio_dir)
@@ -3023,7 +3087,7 @@ def validate_cunk(args: argparse.Namespace) -> int:
             record.duration_seconds,
             force_assignment=True,
         )
-        if not is_reassignment_accepted(args, candidate):
+        if not is_reassignment_accepted(args, candidate, record.duration_seconds):
             continue
         if old_decision.assigned_speaker == candidate.assigned_speaker:
             continue
@@ -3305,7 +3369,7 @@ def validate_cunk_word_splits(args: argparse.Namespace) -> int:
             record.duration_seconds,
             force_assignment=True,
         )
-        if not is_reassignment_accepted(args, candidate):
+        if not is_reassignment_accepted(args, candidate, record.duration_seconds):
             continue
         if old_decision.assigned_speaker == candidate.assigned_speaker:
             continue
@@ -4012,6 +4076,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reassign-unknown-min", type=float, default=0.7)
     parser.add_argument("--reassign-unknown-max", type=float, default=0.82)
     parser.add_argument("--reassign-min-similarity", type=float, default=0.42)
+    parser.add_argument("--reassign-short-max-seconds", type=float, default=1.2)
+    parser.add_argument("--reassign-short-min-similarity", type=float, default=0.30)
+    parser.add_argument("--reassign-short-min-margin", type=float, default=0.10)
     parser.add_argument(
         "--no-context-assign-short-fragments",
         dest="context_assign_short_fragments",
@@ -4024,7 +4091,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--context-assign-stable-unknown-max", type=float, default=0.7)
     parser.add_argument("--context-assign-stable-min-seconds", type=float, default=0.5)
     parser.add_argument("--context-assign-same-speaker-confidence", type=float, default=0.92)
+    parser.add_argument("--context-assign-disagree-confidence", type=float, default=0.78)
+    parser.add_argument("--context-assign-disagree-min-similarity", type=float, default=0.28)
+    parser.add_argument("--context-assign-disagree-margin", type=float, default=0.08)
     parser.add_argument("--context-assign-one-sided-confidence", type=float, default=0.82)
+    parser.add_argument("--context-assign-one-sided-block-margin", type=float, default=0.12)
     parser.add_argument(
         "--no-context-assign-one-sided",
         dest="context_assign_one_sided",
