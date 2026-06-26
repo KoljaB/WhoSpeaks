@@ -23,6 +23,7 @@ These steps allow us to match any sentence against the established speaker profi
 - **convert_wav.py**: Converts the sentence-based MP3 files into WAV format.
 - **auto_diarize.py**/**speaker_diarize.py**: Heart of WhoSpeaks. Categorizes sentences into speaker groups and selects training sentences based on the unique algorithm described above.
 - **pyannote_diarize.py**: Use for comparison against pyannote audio diarization, a current state of the art speaker diarization model
+- **tools/youtube_realtimestt_wasapi_gui.py**: Local RealtimeSTT GUI that plays YouTube in the browser and captures system audio through a Windows WASAPI loopback device. Run it with `.venv\Scripts\python.exe tools\youtube_realtimestt_wasapi_gui.py`.
 
 > **Note**: *auto_diarize is for multiple speakers, speaker_diarize is for two speakers only*
 
